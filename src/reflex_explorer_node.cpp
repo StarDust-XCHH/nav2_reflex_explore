@@ -30,6 +30,9 @@
 
 #include "nav2_reflex_explore/frontier_core.hpp"
 
+// ✅ 新增：用于服务
+#include <std_srvs/srv/trigger.hpp>
+
 // ---- Candidate goal near a frontier
 struct Candidate {
   double x{0.0}, y{0.0};
@@ -159,6 +162,21 @@ public:
     nav_client_->wait_for_action_server();
     RCLCPP_INFO(get_logger(), "Nav2 ready.");
 
+
+    // ✅ 新增：创建 pause / resume 服务
+    pause_service_ = this->create_service<std_srvs::srv::Trigger>(
+      "~/pause_exploration",
+      std::bind(&FrontierExplorerNode::handlePause, this,
+                std::placeholders::_1, std::placeholders::_2)
+    );
+
+    resume_service_ = this->create_service<std_srvs::srv::Trigger>(
+      "~/resume_exploration",
+      std::bind(&FrontierExplorerNode::handleResume, this,
+                std::placeholders::_1, std::placeholders::_2)
+    );
+
+
     const auto t0 = this->now();
     last_refresh_       = t0;
     last_cmd_time_      = t0;
@@ -213,11 +231,21 @@ private:
   tf2_ros::TransformListener tf_listener_;
   rclcpp::TimerBase::SharedPtr timer_;
 
+
+  // ✅ 新增：服务句柄
+  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr pause_service_;
+  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr resume_service_;
+
+
   // state
   nav_msgs::msg::OccupancyGrid::SharedPtr map_;
   std::deque<Candidate> backlog_;
   Candidate active_;
   bool navigating_{false}, finished_{false};
+
+
+  // ✅ 新增：暂停状态标志
+  bool paused_{false};
 
   // watchdog
   rclcpp::Time goal_start_time_;
@@ -279,6 +307,50 @@ private:
     last_cmd_time_ = this->now();
     last_cmd_speed_ = std::hypot(msg->linear.x, msg->linear.y);
   }
+
+  // ✅ 新增：Pause 服务回调
+  void handlePause(
+    const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
+    std::shared_ptr<std_srvs::srv::Trigger::Response> response)
+  {
+    (void)request; // unused
+    if (paused_) {
+      response->success = false;
+      response->message = "Already paused.";
+      RCLCPP_WARN(this->get_logger(), "Pause requested, but already paused.");
+    } else {
+      paused_ = true;
+      // 如果正在导航，取消当前目标
+      if (navigating_) {
+        RCLCPP_WARN(this->get_logger(), "Pausing exploration and cancelling current navigation goal.");
+        nav_client_->async_cancel_all_goals();
+        navigating_ = false;
+        // 可选：将当前 active_ 重新入队（这里暂不重入，避免干扰；也可 requeueFailed）
+      }
+      response->success = true;
+      response->message = "Exploration paused.";
+      RCLCPP_INFO(this->get_logger(), "Exploration PAUSED.");
+    }
+  }
+
+  // ✅ 新增：Resume 服务回调
+  void handleResume(
+    const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
+    std::shared_ptr<std_srvs::srv::Trigger::Response> response)
+  {
+    (void)request; // unused
+    if (!paused_) {
+      response->success = false;
+      response->message = "Not paused.";
+      RCLCPP_WARN(this->get_logger(), "Resume requested, but not paused.");
+    } else {
+      paused_ = false;
+      response->success = true;
+      response->message = "Exploration resumed.";
+      RCLCPP_INFO(this->get_logger(), "Exploration RESUMED.");
+    }
+  }
+
 
   // ---- Helpers
   inline bool validRC(int r, int c) const {
@@ -554,7 +626,10 @@ private:
 
   // ---- Tick
   void tick(){
-    if (finished_ || !map_) return;
+    // if (finished_ || !map_) return;
+    // ✅ 修改：如果已暂停或完成，直接返回（不再执行探索逻辑）
+    if (finished_ || paused_ || !map_) return;
+
 
     pruneVisited();
 
@@ -629,6 +704,13 @@ private:
   }
 
   void sendGoal(Candidate c, const std::pair<double,double>& r){
+
+    if (paused_) {
+    RCLCPP_WARN(get_logger(), "Attempt to send goal while paused! Ignored.");
+    return;
+  }
+
+
     double yaw = std::atan2(c.y - r.second, c.x - r.first);
     geometry_msgs::msg::PoseStamped pose;
     pose.header.frame_id = global_frame_;
