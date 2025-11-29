@@ -12,7 +12,10 @@
 ##  原始项目
 
 本 Fork 基于仓库：[**kishore-saravanan/nav2_reflex_explore**](https://github.com/kishore-saravanan/nav2_reflex_explore)  
+
 如需参数说明和部署方式等，请前往原仓库。
+
+本项目演示视频: [点击观看本项目演示视频](https://www.bilibili.com/video/BV16PSFBWEZ1/?share_source=copy_web&vd_source=4cff5941102c03f936798bd8d26f23f1)
 
 ---
 
