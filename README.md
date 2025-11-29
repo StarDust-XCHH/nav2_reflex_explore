@@ -19,6 +19,14 @@
 ## command
 
 
+### **0. 开始漫游 (wadering)**
+
+**请于探索完成，生成地图后再执行该功能**
+
+```bash
+ros2 run nav2_reflex_explore coverage_wanderer_node
+```
+
 ### **1. 暂停探索 (exploration)**
 ```bash
 ros2 service call /reflex_explorer/pause_exploration std_srvs/srv/Trigger
